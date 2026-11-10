@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#161618">
+  <title>Simulador · Universidad de Málaga</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+  <header>
+    <nav aria-label="Menú principal">
+      <button data-modal="projectDialog">Proyecto</button><button data-modal="cloudDialog">Nube</button><button data-modal="vehicleDialog">Vehículo</button><button data-modal="routeDialog">Trayectoria</button><button data-modal="terrainDialog">Terreno</button><button data-modal="resultsDialog">Resultados</button>
+    </nav>
+    <button class="primary" id="simulate" disabled><span aria-hidden="true">▶</span> Simular</button>
+    <a class="brand" href="https://www.uma.es/" target="_blank" rel="noopener noreferrer" aria-label="Universidad de Málaga"><img src="/assets/uma-logo.png" alt="Universidad de Málaga" width="170" height="63"></a>
+  </header>
+  <main id="scene" class="workspace" aria-label="Mapa 3D">
+    <div class="overlay glass">
+      <div class="eyebrow">ESPACIO DE TRABAJO</div>
+      <div id="status" role="status" aria-live="polite">Conectando…</div>
+      <div id="cloudInfo" class="hint">Sin nube de puntos</div>
+      <div id="progressLabel" class="hint" role="status" aria-live="polite" hidden></div>
+      <progress id="loadProgress" aria-label="Progreso de la operación" max="100" value="0" hidden></progress>
+      <p id="error" role="alert"></p>
+    </div>
+    <aside class="result glass stability-panel" aria-labelledby="stabilityTitle">
+      <div class="stability-head"><h2 id="stabilityTitle">Estabilidad</h2><span id="stabilityTime">Sin simulación</span></div>
+      <div class="stability-graphs">
+        <section class="stability-chart"><h3>Transferencia de carga <span>sin unidades</span></h3><div class="chart-legend"><span class="series-ltr">LTR</span><span class="series-pltr">PLTR cinemático</span></div><canvas id="loadChart" class="index-chart" aria-label="LTR y PLTR cinemático hasta el instante seleccionado"></canvas></section>
+        <section class="stability-chart"><h3>ZML / línea COP <span>m</span></h3><div class="chart-legend"><span class="series-zmlx">X · avance</span><span class="series-zmly">Y · izquierda</span></div><canvas id="zmlChart" class="index-chart" aria-label="Coordenadas X e Y de la línea ZML en el plano de referencia hasta el instante seleccionado"></canvas></section>
+        <section class="stability-chart"><h3>SI energético <span>sin unidades</span></h3><canvas id="siChart" class="index-chart" aria-label="SI energético hasta el instante seleccionado"></canvas></section>
+        <p id="stabilityState" class="hint">Simula para ver la evolución de los índices.</p>
+      </div>
+      <div class="stability-details" tabindex="0" aria-label="Valores, parámetros y fórmulas de estabilidad">
+        <section class="index-detail"><div class="index-heading"><h3>LTR</h3><output id="ltrValue" aria-label="LTR actual">No disponible</output></div><p id="ltrReason" class="index-reason"></p><div class="index-formula">LTR = (Fz,R − Fz,L) / (Fz,R + Fz,L)</div><p class="hint">Cargas verticales de las ruedas. Signo positivo: mayor carga a la derecha. Se excluyen los contactos de la carrocería.</p><dl id="ltrParams" class="index-params"></dl></section>
+        <section class="index-detail"><div class="index-heading"><h3>PLTR cinemático</h3><output id="pltrValue" aria-label="PLTR cinemático actual">No disponible</output></div><p id="pltrReason" class="index-reason"></p><div class="index-formula">PLTRcin = 2h/tw · (ay/g + φ)<br>+ 2h/(tw·g) · (d(ay)/dt + g·dφ/dt) · Δt</div><p class="hint">Inspirado en Li; adaptación cinemática, no la ecuación 10 original. Extrapolación local de primer orden y ángulo pequeño, con geometría nominal constante. No anticipa terreno ni maniobras. Derivadas causales al paso de cálculo; φ en radianes.</p><dl id="pltrParams" class="index-params"></dl></section>
+        <section class="index-detail"><div class="index-heading"><h3>ZML / línea COP</h3><output id="zmlValue" aria-label="Coordenadas ZML actuales">No disponible</output></div><p id="zmlReason" class="index-reason"></p><div class="index-formula">x(z) = (−My + z·Fx) / Fz<br>y(z) = (Mx + z·Fy) / Fz<br>τres = M·F / Fz</div><p class="hint">Se grafican x(zref), y(zref), no un índice normalizado. Origen: centro de masas; X en el rumbo del vehículo, Y a su izquierda y Z vertical. zref es la altura media de contactos ponderada por carga vertical. La línea COP corresponde a ZML bajo las condiciones de equilibrio del artículo; se muestra el momento torsional residual. Las curvas no constituyen por sí solas un margen de seguridad sobre apoyos 3D.</p><dl id="zmlParams" class="index-params"></dl></section>
+        <section class="index-detail"><div class="index-heading"><h3>SI energético</h3><output id="siValue" aria-label="SI energético actual">No disponible</output></div><p id="siReason" class="index-reason"></p><div class="index-formula">SI = 1 − k₁·|φ|/φc − k₂·(ωx/ωc)²<br>φc = atan(b/h); d = √(b² + h²)<br>Ip = ICG + m·d²<br>ωc = √[2m·g·(d − h) / Ip]</div><p class="hint">ωx en ejes del vehículo. Umbrales y coeficientes nominales, sin validación como límites de seguridad. Masa e inercia del chasis rígido simulado; geometría nominal, no el límite instantáneo del terreno. Se conservan valores negativos.</p><dl id="siParams" class="index-params"></dl></section>
+        <section class="stability-vehicle"><div class="eyebrow">VEHÍCULO</div><b id="modelName">Sin colocar</b><div id="liveMetric" class="hint">Clic para colocar · ⇧ clic para orientar</div><div id="rotationControl" hidden><div class="rotation-label"><label for="heading">Orientación</label><output id="headingValue" for="heading">0°</output></div><input id="heading" type="range" min="-180" max="180" value="0" step="1" aria-label="Girar vehículo"><div class="rotation-actions"><button id="rotateLeft" class="quiet" aria-label="Girar 15 grados a la izquierda">↶ 15°</button><button id="rotateRight" class="quiet" aria-label="Girar 15 grados a la derecha">↷ 15°</button></div></div><button class="quiet" data-modal="resultsDialog">Ver resultados <span aria-hidden="true">↗</span></button></section>
+      </div>
+    </aside>
+    <div class="player glass">
+      <button id="play" class="icon" aria-label="Reproducir o pausar" disabled>▶</button>
+      <input id="timeline" aria-label="Tiempo de simulación" type="range" min="0" max="0" value="0" step="1" disabled>
+      <span id="time">0,00 s</span><div class="divider"></div>
+      <button id="reset" class="icon" title="Volver al inicio" aria-label="Volver al inicio">↺</button><button id="fit" class="icon" title="Encuadrar mapa" aria-label="Encuadrar mapa">⌖</button>
+    </div>
+  </main>
+  <dialog id="cloudDialog" aria-labelledby="cloudTitle" class="compact">
+    <div class="dialoghead"><h2 id="cloudTitle">Nube de puntos</h2><button class="close" aria-label="Cerrar">×</button></div>
+    <div class="body"><label class="file-label">Archivo PLY <span class="hint">Hasta 100 MB</span><input type="file" id="file" accept=".ply"></label><div class="actions"><button id="loadCloud" class="primary" disabled>Cargar</button></div></div>
+  </dialog>
+  <dialog id="vehicleDialog" aria-labelledby="vehicleTitle">
+    <div class="dialoghead"><h2 id="vehicleTitle">Vehículo y estado inicial</h2><button class="close" aria-label="Cerrar">×</button></div>
+    <div class="body"><label>Modelo<select id="vehicle"></select></label><h3>Pose inicial <span>m · °</span></h3><p class="hint">Clic en el mapa para colocar. Mayús + clic para orientar.</p><div id="pose" class="fields"></div><h3>Velocidades iniciales <span>m/s · rad/s</span></h3><div id="velocity" class="fields"></div><h3>Maniobra manual</h3><div id="physics" class="fields"></div><div class="actions"><button class="primary closeAction">Listo</button></div></div>
+  </dialog>
+  <dialog id="routeDialog" aria-labelledby="routeTitle">
+    <div class="dialoghead"><h2 id="routeTitle">Trayectoria</h2><button class="close" aria-label="Cerrar">×</button></div>
+    <div class="body"><div class="maphead"><span class="hint">La primera pose es el vehículo. Clic para añadir el recorrido.</span><span id="routeCount" class="pill">0 poses</span></div><canvas id="routeMap" class="map" aria-label="Mapa de trayectoria: añadir poses con el ratón"></canvas><div class="actions"><button id="undoWaypoint">Deshacer pose</button><button id="clearRoute">Vaciar ruta</button><button class="primary closeAction">Aplicar trayectoria</button></div></div>
+  </dialog>
+  <dialog id="terrainDialog" aria-labelledby="terrainTitle">
+    <div class="dialoghead"><h2 id="terrainTitle">Terreno</h2><button class="close" aria-label="Cerrar">×</button></div>
+    <div class="body"><div id="terrainLegend"></div><canvas id="terrainMap" class="map" aria-label="Mapa de terreno: seleccionar centro con el ratón"></canvas><div class="fields terrain-fields"><label>Clase<select id="zoneClass"></select></label><label>Radio · m<input id="zoneRadius" type="number" min="0.01" max="1000" value="2" step="0.1"></label><label>Centro X · m<input id="zoneX" type="number" value="0" readonly></label><label>Centro Y · m<input id="zoneY" type="number" value="0" readonly></label><label>Centro Z · m<input id="zoneZ" type="number" value="0" readonly></label></div><div class="actions"><span id="zoneCount" class="hint"></span><button id="addZone">Clasificar zona</button></div><div class="scroll"><table><thead><tr><th>Clase</th><th>Fricción · μ</th><th>Rigidez · N/m</th></tr></thead><tbody id="classRows"></tbody></table></div><div class="actions"><button id="undoZone">Eliminar última zona</button><button class="primary closeAction">Aplicar terreno</button></div></div>
+  </dialog>
+  <dialog id="projectDialog" aria-labelledby="projectTitle" class="compact">
+    <div class="dialoghead"><h2 id="projectTitle">Proyecto</h2><button class="close" aria-label="Cerrar">×</button></div>
+    <div class="body"><p class="hint">Tu nube, vehículo, trayectoria y resultados en un solo archivo.</p><input id="projectFile" type="file" accept=".fusionforce" hidden><div class="project-actions"><button id="loadProject">↑ <span>Abrir proyecto</span></button><button id="saveProject" class="primary" disabled>↓ <span>Guardar proyecto</span></button></div><p id="projectState" role="status" class="hint"></p></div>
+  </dialog>
+  <dialog id="resultsDialog" aria-labelledby="resultsTitle">
+    <div class="dialoghead"><h2 id="resultsTitle">Resultados</h2><button class="close" aria-label="Cerrar">×</button></div>
+    <div class="body"><p id="warnings" class="hint" role="status">Sin simulación</p><div id="metrics"></div><h3>Punto seleccionado</h3><div id="selection" class="hint">Selecciona un punto del vehículo para inspeccionar sus fuerzas.</div><div class="actions"><span id="csvState" class="hint" role="status"></span><a class="button" id="downloadCsv" aria-disabled="true" tabindex="-1">Descargar CSV</a></div></div>
+  </dialog>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
